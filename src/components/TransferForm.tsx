@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import InputField from './InputField';
+import ResponseMessage from './ResponseMessage';
 import cx from 'classnames';
 
 interface Account {
@@ -17,32 +18,35 @@ interface Account {
   country: string;
   createdAt: string;
 }
+
+interface Response {
+  status: string;
+  message: string;
+  errorMessage: string;
+}
+
 interface Data {
   accounts: Account[];
 }
 
-interface TransferResponse {
-  data: {
-    status: string;
-    message: string;
-    errorMessage: string;
-  };
-}
-
 const TransferForm = () => {
   const [accounts, setAccounts] = useState([]);
-  const [selectedAccount, setSelectedAccount] = useState('');
+  const [selectedAccount, setSelectedAccount] = useState(null);
   const [amount, setAmount] = useState('');
-  const [recipientName, setRecipientName] = useState('');
   const [targetIBAN, setTargetIBAN] = useState('');
+  const [knownReceiverIBAN, setKnownReceiver] = useState(false);
+  const [onlyKnownIbans, setOnlyKnownIbans] = useState(false);
+  const [recipientName, setRecipientName] = useState('');
   const [targetBIC, setTargetBIC] = useState('');
   const [reference, setReference] = useState('');
 
-  const [response, setResponse] = useState({
+  const emptyResponse = {
     status: '',
     message: '',
     errorMessage: ''
-  });
+  };
+
+  const [response, setResponse] = useState<Response>(emptyResponse);
 
   useEffect(() => {
     axios.get('http://localhost:3000/accounts').then((response) => {
@@ -51,18 +55,34 @@ const TransferForm = () => {
   }, []);
 
   useEffect(() => {
-    if (accounts.length > 0) {
-      setSelectedAccount(accounts[0].id);
+    const account = accounts.find((account) => account.IBAN === targetIBAN);
+    if (account) {
+      setRecipientName(account.name);
+      setKnownReceiver(true);
+    } else {
+      setRecipientName('');
+      setKnownReceiver(false);
     }
-  }, [accounts]);
+  }, [targetIBAN]);
+
+  const goBackFromResponse = () => {
+    clearForm();
+    setResponse(emptyResponse);
+  };
 
   const clearForm = () => {
     setSelectedAccount('');
     setAmount('');
-    setRecipientName('');
     setTargetIBAN('');
+    setRecipientName('');
     setTargetBIC('');
     setReference('');
+    setKnownReceiver(false);
+    setOnlyKnownIbans(false);
+  };
+
+  const updateSelectedAccount = (id) => {
+    setSelectedAccount(id);
   };
 
   const handleSubmit = (event) => {
@@ -71,144 +91,134 @@ const TransferForm = () => {
     const transferDetails = {
       sourceAccount: selectedAccount,
       amount: amount,
-      recipientName: recipientName,
       targetIBAN: targetIBAN,
+      recipientName: recipientName,
       targetBIC: targetBIC,
-      reference: reference
+      reference: reference,
+      onlyKnownIbans: onlyKnownIbans
     };
 
     axios
       .post('http://localhost:3000/transfer', transferDetails)
-      .then((response: TransferResponse) => {
-        console.log('++++', response);
+      .then((response) => {
         setResponse(response.data);
-        // Update the frontend state
-        clearForm();
       })
       .catch((error) => {
         setResponse(error.response.data);
-        console.error(error);
       });
   };
 
   if (!response && accounts.length === 0) {
-    return <div>Loading...</div>;
+    return (
+      <div className="flex flex-col items-center justify-center text-gray-400 text-3xl">
+        Loading...
+      </div>
+    );
   }
+  const hasFieldError = response.status === 'error' && response.isFieldError === true;
 
-  if (response.status !== '') {
-    return <ResponseMessage response={response} handleClick={() => setResponse({ status: '' })} />;
+  if (response.status === 'success' || (response.status === 'error' && !response.isFieldError)) {
+    return <ResponseMessage response={response} handleClick={goBackFromResponse} />;
   }
 
   return (
-    <div className="flex flex-col items-center justify-center w-full h-full">
-      {response.status === '' && (
-        <form className="flex flex-col w-full space-y-2" onSubmit={handleSubmit}>
-          <div className="flex w-full flex-col">
-            <label className="mr-2">Select account</label>
-            <select
-              className="border flex w-full rounded-md h-10 border-gray-400 px-2 py-1 placeholder-slate-400 text-gray-800"
-              value={selectedAccount}
-              onChange={(e) => setSelectedAccount(e.target.value)}
-            >
-              {accounts.map((account) => (
-                <option key={account.id} value={account.id}>
-                  {account.name}
+    <div className="flex flex-col items-center justify-center sm:w-1/2 md:w-2/3 h-full">
+      {(response.status === '' || hasFieldError) && (
+        <>
+          <div className="flex items-center justify-start w-full rounded-md px-4 py-2 border-2 border-red-200">
+            <label htmlFor="only-known-ibans" className="hover:cursor-pointer hover:text-red-300">
+              Only known IBANs
+            </label>
+            <input
+              id="only-known-ibans"
+              className="ml-2 w-6 h-6 border-2 border-gray-400 rounded-md"
+              type="checkbox"
+              checked={onlyKnownIbans}
+              onChange={() => setOnlyKnownIbans(!onlyKnownIbans)}
+            />
+          </div>
+          <form className="flex flex-col w-full space-y-4 rounded-lg mt-3" onSubmit={handleSubmit}>
+            <div className="flex w-full flex-col">
+              <label className="text-3xl text-orange-200 mb-1">Sender</label>
+              <select
+                className="border flex w-full rounded-md h-10 border-gray-400 px-2 py-1 placeholder-slate-400 text-gray-800"
+                value={selectedAccount || ''}
+                placeholder="Select sender account"
+                onChange={(e) => updateSelectedAccount(e.target.value)}
+              >
+                <option value="" disabled>
+                  Select sender account
                 </option>
-              ))}
-            </select>
-          </div>
-          <div className="flex w-full ">
-            <InputField
-              type="number"
-              label="amount"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-            />
-          </div>
-          <div className="flex w-full ">
-            <InputField
-              type="text"
-              label="Recipient Name"
-              value={recipientName}
-              onChange={(e) => setRecipientName(e.target.value)}
-            />
-          </div>
-          <div className="flex w-full ">
-            <InputField
-              type="text"
-              label="Target IBAN"
-              value={targetIBAN}
-              onChange={(e) => setTargetIBAN(e.target.value)}
-            />
-          </div>
-          <div className="flex w-full ">
-            <InputField
-              type="text"
-              label="Target BIC"
-              value={targetBIC}
-              onChange={(e) => setTargetBIC(e.target.value)}
-            />
-          </div>
-          <div className="flex w-full ">
-            <InputField
-              type="text"
-              label="Reference"
-              value={reference}
-              onChange={(e) => setReference(e.target.value)}
-            />
-          </div>
-          <div className="flex w-full mt-2">
-            <button
-              className="border border-blue-700 rounded-xl px-3 py-1 bg-blue-200"
-              type="submit"
-            >
-              Submit
-            </button>
-          </div>
-        </form>
+                {accounts.map((account) => (
+                  <option key={account.id} value={account.id}>
+                    {account.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex flex-col w-full min-h-[484px]">
+              {selectedAccount && (
+                <div className=" border border-emerald-300 p-3 rounded-md space-y-2">
+                  <p className="text-3xl text-emerald-500">Receiver</p>
+                  <div className="flex w-full ">
+                    <InputField
+                      type="number"
+                      label="amount (€)"
+                      errorMessage={response.field === 'amount' ? response.errorMessage : ''}
+                      value={amount}
+                      onChange={(e) => setAmount(e.target.value)}
+                    />
+                  </div>
+                  <div className="flex w-full ">
+                    <InputField
+                      type="text"
+                      label="Target IBAN"
+                      value={targetIBAN}
+                      errorMessage={response.field === 'targetIBAN' ? response.errorMessage : ''}
+                      onChange={(e) => setTargetIBAN(e.target.value)}
+                    />
+                  </div>
+                  <div className="flex w-full ">
+                    <InputField
+                      type="text"
+                      label="Recipient Name"
+                      value={recipientName}
+                      disabled={knownReceiverIBAN}
+                      onChange={(e) => setRecipientName(e.target.value)}
+                    />
+                  </div>
+                  <div className="flex w-full ">
+                    <InputField
+                      type="text"
+                      label="Target BIC"
+                      value={targetBIC}
+                      onChange={(e) => setTargetBIC(e.target.value)}
+                    />
+                  </div>
+                  <div className="flex w-full ">
+                    <InputField
+                      type="text"
+                      label="Reference"
+                      value={reference}
+                      onChange={(e) => setReference(e.target.value)}
+                    />
+                  </div>
+                  <div className="flex w-full justify-end">
+                    <button
+                      className="border text-xl border-green-700 rounded-md px-4 py-1 bg-green-600"
+                      type="submit"
+                    >
+                      Submit
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </form>
+        </>
       )}
     </div>
   );
 };
 
-const getMessageFromStatus = (status: string) => {
-  console.log(status);
-  switch (status) {
-    case 'success':
-      return 'bg-green-200 bg-opacity-50 border-green-400 border-2';
-    case 'error':
-      return 'bg-red-200 bg-opacity-50 border-red-400 border-2';
-    default:
-      return '';
-  }
-};
-
-const ResponseMessage = ({ response, handleClick }) => {
-  return (
-    <div
-      className={cx(
-        'flex flex-col w-full mt-4 rounded-xl px-6 py-4',
-        getMessageFromStatus(response.status)
-      )}
-    >
-      <div className="flex space-x-4 text-3xl">
-        <div className="flex font-bold">Status</div>
-        <div className="flex capitalize">{response.status}</div>
-      </div>
-      {response.status === 'error' && (
-        <div className="flex space-x-4">
-          <div className="flex ">{response.errorMessage}</div>
-        </div>
-      )}
-      <div className="flex space-x-4 mt-5 self-end">
-        <button
-          className="border border-orange-300 rounded-xl px-3 py-1 bg-orange-200"
-          onClick={handleClick}
-        >
-          ok
-        </button>
-      </div>
-    </div>
-  );
-};
 export default TransferForm;

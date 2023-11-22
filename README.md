@@ -1,3 +1,64 @@
+## Pile Tech Challenge
+
+## How to spin it up (locally)
+
+From project root folder
+
+1. Install deps and spin up FE
+```
+yarn && yarn dev
+
+```
+in another tab also spin up BE
+
+```
+node server/server.ts
+```
+
+
+### Frontend
+
+- HomePage
+  - Link to transfer Form
+  - Link to Address Book
+  - Total Balance
+- /transfer - handle the TransferForm
+  - checkbox that allows to decide if the transaction is for _only-known_ ibans
+  - ask the user to select the Sender
+  - ask the user to add the `amount`
+  - ask the user to add `Target IBAN`
+    - here the FE check the IBAN
+      - if it's a known IBAN, the `targetName` gets auto-filled and _disabled_
+      - if it's a new IBAN, let the user add the `targetName`
+  - ask the user to add `targetBic`
+  - ask the user to add `reference`
+- /account-balances - shows the list of accounts stored
+
+### Backend
+
+- /accounts returns accounts from JSON file
+- /transfer handles money transfer:
+  - Checks if the `only known IBANS` is true
+    - if `YES` : only allows the transaction if the receiver's IBAN is in the account's list
+    - if `NO` : allow all the transactions
+  - Checks sender availability
+    - Transfer goes through only if sender has enough money.
+  - Creates log report
+- /totalBalance returns the sum of the balances in the account-list
+
+### Transfer Validation:
+
+- if `amount` we are trying to move is bigger than availability - raise an _Error_
+- if the entire form is empty - raise an _Error_
+
+### UI
+
+Minimalistic UI
+
+------------------------------------------
+
+## INFRA
+
 This is a [Next.js](https://nextjs.org/) project bootstrapped with [`create-next-app`](https://github.com/vercel/next.js/tree/canary/packages/create-next-app).
 
 ## Getting Started

@@ -7,29 +7,72 @@ app.use(express.urlencoded({ extended: true })); // This is needed to parse URL-
 app.use(cors());
 let accounts = require('./accounts.json').data;
 
-function initiateSEPAPayment() {
+function initiateSEPAPayment(params) {
   return new Promise((resolve, reject) => {
-    // Generate a random number between 0 and 1
-    const randomNumber = Math.random();
-
-    // If the random number is less than 0.5, resolve the promise with a success message
-    if (randomNumber < 0.5) {
-      resolve({
-        status: 'success',
-        paymentId: '123456',
-        message: 'Payment initiated successfully'
-      });
-    }
-    // Otherwise, reject the promise with an error message
-    else {
-      reject({
+    let { onlyKnownIbans, sourceAccount, amount, recipientName, targetIBAN, targetBIC, reference } =
+      params;
+    console.log('-----------------------------------');
+    console.log('Initiating SEPA payment');
+    console.log('+ Only known IBANs:', onlyKnownIbans);
+    if (!amount && !recipientName && !targetIBAN && !targetBIC && !reference) {
+      console.log('Invalid payment details - Transaction aborted');
+      return resolve({
         status: 'error',
-        errorCode: '1001',
-        errorMessage: 'Insufficient funds'
+        errorMessage: 'Invalid payment details',
+        isFieldError: false
       });
     }
+
+    let sourceAccountDetails = accounts.find((account) => account.id === sourceAccount);
+    console.log(`+ Transferring €${amount} from ${sourceAccountDetails.name} to ${recipientName}`);
+
+    console.log(
+      '+ Checking availability: ',
+      sourceAccountDetails.balances.available.value - amount
+    );
+    if (sourceAccountDetails && sourceAccountDetails.balances.available.value < amount) {
+      console.log('Insufficient funds in the source account - Transaction aborted');
+      return resolve({
+        status: 'error',
+        errorMessage: 'Insufficient funds in the source account',
+        field: 'amount',
+        isFieldError: true
+      });
+    }
+
+    // Check if the targetIBAN matches one of the account's list
+    if (onlyKnownIbans) {
+      let targetAccountDetails = accounts.find((account) => account.IBAN === targetIBAN);
+      if (!targetAccountDetails) {
+        console.log('Invalid target IBAN - Transaction aborted');
+        return resolve({
+          status: 'error',
+          errorMessage: 'Invalid target IBAN',
+          field: 'targetIBAN',
+          isFieldError: true
+        });
+      }
+    }
+
+    console.log(`> Target IBAN: ${targetIBAN}`);
+    console.log(`> Target BIC: ${targetBIC}`);
+    console.log(`> Reference: ${reference}`);
+    console.log('-----------------------------------');
+    return resolve({
+      status: 'success',
+      paymentId: '123456',
+      message: 'Payment successfully created'
+    });
   });
 }
+
+app.get('/totalBalance', (req, res) => {
+  let totalBalance = accounts.reduce((total, account) => {
+    return total + account.balances.available.value;
+  }, 0);
+
+  res.json({ totalBalance });
+});
 
 app.get('/accounts', (req, res) => {
   let { balance_gt, balance_lt, page, limit } = req.query;
@@ -39,6 +82,7 @@ app.get('/accounts', (req, res) => {
   page = page ? parseInt(page) : 1;
   limit = limit ? parseInt(limit) : 10;
 
+  // Filter accounts by balance
   let filteredAccounts = accounts.filter((account) => {
     let balance = account.balances.available.value;
     return balance > balance_gt && balance < balance_lt;
@@ -50,34 +94,32 @@ app.get('/accounts', (req, res) => {
 });
 
 app.post('/transfer', (req, res) => {
-  let { sourceAccount, amount, recipientName, targetIBAN, targetBIC, reference } = req.body;
+  let { sourceAccount, amount, recipientName, targetIBAN, targetBIC, reference, onlyKnownIbans } =
+    req.body;
 
-  // Validate the payment details
-  if (!sourceAccount || !amount || !recipientName || !targetIBAN || !targetBIC || !reference) {
-    console.log('Invalid payment details - Transaction aborted');
-    console.log(`Reference: ${reference}`);
-    console.log(`Status: error`);
-    return res.status(400).json({ status: 'error', errorMessage: 'Invalid payment details' });
-  }
-
-  // log the transfer details
-  console.log(`Transferring ${amount} from ${sourceAccount} to ${targetIBAN} (${targetBIC})`);
-
-  // Initiate the SEPA payment
-  initiateSEPAPayment(sourceAccount, amount, recipientName, targetIBAN, targetBIC, reference)
+  initiateSEPAPayment({
+    sourceAccount,
+    amount,
+    recipientName,
+    targetIBAN,
+    targetBIC,
+    reference,
+    onlyKnownIbans
+  })
     .then((response) => {
-      // If the payment was successful, send a response
-      console.log(`Reference: ${reference}`);
       console.log(`Status: ${response.status}`);
+      console.log('-----------------------------------');
       res.json(response);
     })
     .catch((error) => {
-      // If there was an error, send an error response
-      console.log(`Reference: ${reference}`);
       console.log(`Status: error`);
-      res
-        .status(500)
-        .json({ status: 'error', errorMessage: 'An error occurred while processing the payment' });
+      console.log(`Message: ${error.errorMessage}`);
+      console.log('-----------------------------------');
+      res.status(500).json({
+        status: 'error',
+        errorMessage: 'An error occurred while processing the payment',
+        isFieldError: false
+      });
     });
 });
 
